@@ -1,305 +1,204 @@
-# ortho_histo
+app de téléchargement et géoréférencement auto helmert des pva IGN
 
-Pipeline Python permettant de récupérer, simuler et géoréférencer des prises de vues aériennes historiques IGN issues du service WFS `pva:image`.
+Pipeline Python pour recuperer, simuler et georeferencer des prises de vues
+aeriennes historiques IGN issues du service WFS `pva:image`.
 
----
+## Objectif
 
-# Fonctionnalités
+Le projet propose deux points d'entree qui partagent le meme coeur metier :
 
-Le projet propose deux modes d'utilisation partageant le même cœur métier :
+- un pipeline batch/debug lance depuis VS Code ou un terminal ;
+- une application Streamlit dynamique pilotee par la vue cartographique.
 
-- **Mode batch/debug** lancé depuis VS Code ou un terminal ;
-- **Application Streamlit interactive** pilotée par une vue cartographique.
+Dans les deux cas, la chaine s'appuie sur les footprints WFS IGN, l'orientation
+des cliches et une transformation Helmert stricte. Les TIFF bruts ne sont pas
+supposes contenir des GCP internes.
 
-Dans les deux cas, la chaîne de traitement s'appuie sur :
-
-- les footprints WFS IGN ;
-- l’orientation des clichés ;
-- une transformation Helmert stricte ;
-- des TIFF bruts ne contenant pas de GCP internes.
-
----
-
-# Structure du projet
+## Structure
 
 ```text
 ortho_histo/
-│
-├── config.py
-├── paths.py
-├── main.py
-├── main_georef.py
-├── environment.yml
-├── install_env.bat
-├── lancer_application.bat
-│
-├── core/
-│   ├── fetch_wfs.py
-│   ├── build_geojson.py
-│   ├── filter_emprise.py
-│   └── pipeline_download.py
-│
-├── download/
-│   └── tif_downloader.py
-│
-├── export/
-│   └── footprint_geojson.py
-│
-├── georef/
-│   ├── simulation.py
-│   ├── tiff_gcps.py
-│   ├── gdal_writer.py
-│   ├── georef_runner.py
-│   └── methods/
-│       └── helmert.py
-│
-├── _application/
-│   └── app_streamlit.py
-│
-└── _data/
-    └── {dataset_id}/
-        ├── geojson/
-        ├── images/
-        │   ├── raw/
-        │   └── georef/
-        └── logs/
+  config.py
+  paths.py
+  main.py
+  main_georef.py
+  environment.yml
+  install_env.bat
+  lancer_application.bat
+
+  core/
+    fetch_wfs.py
+    build_geojson.py
+    filter_emprise.py
+    pipeline_download.py
+
+  download/
+    tif_downloader.py
+
+  export/
+    footprint_geojson.py
+
+  georef/
+    simulation.py
+    tiff_gcps.py
+    gdal_writer.py
+    georef_runner.py
+    methods/
+      helmert.py
+
+  _application/
+    app_streamlit.py
+
+  _data/
+    {dataset_id}/
+      geojson/
+      images/
+        raw/
+        georef/
+      logs/
 ```
 
----
+## Configuration Batch
 
-# Configuration du mode batch
-
-Le fichier `config.py` contient les valeurs par défaut du mode batch/debug :
+`config.py` contient les valeurs par defaut du mode batch/debug :
 
 ```python
 DATASET_IDENTIFIER = "2219-0441"
-
 DATASET_IDENTIFIERS = [
     DATASET_IDENTIFIER,
 ]
 ```
 
-Pour traiter plusieurs missions depuis VS Code :
+Pour traiter plusieurs missions depuis VS Code, ajouter les identifiants dans
+`DATASET_IDENTIFIERS`.
 
-```python
-DATASET_IDENTIFIERS = [
-    "2219-0441",
-    "XXXX-XXXX",
-]
-```
-
-Le filtrage par emprise shapefile reste possible :
+Le filtrage par emprise shapefile reste possible en mode batch :
 
 ```python
 EMPRISE_SHAPE_PATH = None
 ```
 
-Si `EMPRISE_SHAPE_PATH` est renseigné :
+Si `EMPRISE_SHAPE_PATH` est renseigne, `main.py` interroge le WFS sur la bbox
+de l'emprise, filtre exactement les footprints cote Python, puis regroupe les
+photos par `dataset_identifier`.
 
-- `main.py` interroge le WFS sur la bbox de l’emprise ;
-- les footprints sont filtrés côté Python ;
-- les photos sont regroupées par `dataset_identifier`.
-
----
-
-# Pipeline batch — téléchargement
-
-## Lancement
+## Pipeline Batch Telechargement
 
 ```powershell
 python main.py
 ```
 
-## Fonctionnement
+Ce script :
 
-Le script :
+- utilise `DATASET_IDENTIFIERS` si aucune emprise n'est configuree ;
+- utilise `EMPRISE_SHAPE_PATH` si une emprise est configuree ;
+- exporte les footprints dans `_data/{dataset_id}/geojson/` ;
+- telecharge les TIFF dans `_data/{dataset_id}/images/raw/` ;
+- ignore les TIFF deja presents.
 
-- utilise `DATASET_IDENTIFIERS` si aucune emprise n’est configurée ;
-- utilise `EMPRISE_SHAPE_PATH` si une emprise est définie ;
-- exporte les footprints dans :
-
-```text
-_data/{dataset_id}/geojson/
-```
-
-- télécharge les TIFF dans :
-
-```text
-_data/{dataset_id}/images/raw/
-```
-
-- ignore automatiquement les TIFF déjà présents.
-
----
-
-# Pipeline batch — géoréférencement
-
-## Lancement
+## Pipeline Batch Georeferencement
 
 ```powershell
 python main_georef.py
 ```
 
-## Surcharge ponctuelle du seuil RMS
+Le seuil RMQ peut etre surcharge ponctuellement sans modifier `config.py` :
 
 ```powershell
 python main_georef.py --max-rms 25
 ```
 
-## Fonctionnement
-
-Le script boucle sur `DATASET_IDENTIFIERS` et appelle :
+Ce script boucle sur `DATASET_IDENTIFIERS` et appelle le runner commun :
 
 ```python
-run_georef_batch(
-    dataset_identifier=dataset_id,
-    max_rms=max_rms
-)
+run_georef_batch(dataset_identifier=dataset_id, max_rms=max_rms)
 ```
 
-Le géoréférencement :
+Le georeferencement :
 
-- reconstruit les GCP depuis le footprint GeoJSON ;
-- utilise la taille pixel du TIFF ;
-- recalcule l’orientation nord IGN avec :
-
-```python
-180 - orientation_wfs
-```
-
-- applique la convention IGN :
-  - angle positif = horaire ;
-  - angle négatif = anti-horaire ;
+- reconstruit les GCP depuis le footprint GeoJSON et la taille pixel du TIFF ;
+- recalcule l'orientation nord IGN avec `180 - orientation_wfs` ;
+- applique la convention IGN : angle positif horaire, angle negatif
+  anti-horaire ;
 - teste une Helmert avec 8 points ;
-- retombe sur les 4 coins si nécessaire ;
-- rejette l’image si la RMS reste supérieure au seuil.
+- retombe sur les 4 coins si necessaire ;
+- rejette l'image si la RMQ reste superieure au seuil.
 
-## Sorties
+Les sorties sont ecrites dans :
 
 ```text
 _data/{dataset_id}/images/georef/{method}/
 _data/{dataset_id}/logs/batch/
 ```
 
-Les GeoTIFF ne sont pas préfixés selon le point d’entrée.
+Les GeoTIFF ne sont pas prefixes par le point d'entree. Un GeoTIFF produit par
+le batch ou par l'application a le meme chemin si les parametres metier sont
+identiques. La distinction app/batch est portee par les logs avec `run_source`
+et `run_id`.
 
-Ainsi :
+## Application Streamlit
 
-- un GeoTIFF produit par le batch ;
-- ou un GeoTIFF produit par l’application
-
-auront exactement le même chemin si les paramètres métier sont identiques.
-
-La distinction batch/app est portée uniquement par les logs via :
-
-- `run_source`
-- `run_id`
-
----
-
-# Application Streamlit
-
-## Lancement
-
-### Via le script batch
+L'application est lancee avec :
 
 ```powershell
 lancer_application.bat
 ```
 
-### Ou directement
+ou :
 
 ```powershell
 streamlit run _application/app_streamlit.py
 ```
 
----
-
-# Workflow de l’application
-
-L’application ne modifie pas `config.py`.
-
-Elle repose entièrement sur la sélection dynamique de l’utilisateur :
+Elle ne modifie pas `config.py`. Elle utilise la selection dynamique de
+l'utilisateur :
 
 1. cadrage de la carte ;
-2. sélection du seuil RMS ;
-3. clic sur **Filtrer l’emprise** ;
-4. interrogation WFS sur :
-   - la vue courante ;
-   - ou l’emprise dessinée ;
-5. sélection des missions candidates ;
-6. simulation du géoréférencement via HTTP Range ;
-7. affichage d’un résumé par mission ;
-8. export optionnel :
-   - de la sélection ;
-   - du CSV de simulation ;
-9. export des footprints ;
-10. téléchargement des images retenues ;
-11. géoréférencement des images sélectionnées uniquement.
+2. selection du seuil RMQ dans le panneau lateral ;
+3. clic sur `Filtrer l'emprise` ;
+4. interrogation WFS sur la vue courante ou l'emprise dessinee ;
+5. selection des missions candidates dans un tableau ;
+6. simulation du georeferencement via HTTP Range, sans telecharger les TIFF
+   complets ;
+7. affichage d'un resume par mission ;
+8. export optionnel de la selection et du CSV de simulation ;
+9. export des footprints et telechargement des images retenues ;
+10. georeferencement des images selectionnees uniquement avec le meme seuil RMQ.
 
-Le bouton de géoréférencement appelle :
+Le bouton de georeferencement de l'application appelle :
 
 ```python
-run_georef_batch(
-    dataset_identifier=dataset_id,
-    image_ids=image_ids,
-    max_rms=max_rms
-)
+run_georef_batch(dataset_identifier=dataset_id, image_ids=image_ids, max_rms=max_rms)
 ```
 
-L’application ne dépend donc pas de `DATASET_IDENTIFIER`.
+Donc l'application ne depend pas de `DATASET_IDENTIFIER`.
 
-## Logs application
+Les logs de l'application sont ecrits dans :
 
 ```text
 _data/{dataset_id}/logs/app/
 ```
 
----
+## Simulation Avant Telechargement
 
-# Simulation avant téléchargement
+`georef/simulation.py` lit uniquement l'en-tete TIFF distant avec HTTP Range
+pour obtenir `width` et `height`. La simulation utilise ensuite :
 
-Le module :
-
-```text
-georef/simulation.py
-```
-
-lit uniquement l’en-tête TIFF distant via HTTP Range afin de récupérer :
-
-- `width`
-- `height`
-
-La simulation utilise ensuite :
-
-- le footprint WFS ;
-- l’orientation WFS ;
-- la taille pixel ;
+- footprint WFS ;
+- orientation WFS ;
+- taille pixel ;
 - Helmert 8 points puis 4 coins.
 
-Si aucune tentative ne respecte le seuil RMS choisi :
+Si aucune tentative ne passe le seuil RMQ choisi, l'image n'est pas proposee au
+telechargement dans l'application. En mode batch, le seuil vient de
+`GEOREF_MAX_RMS`, sauf surcharge par `python main_georef.py --max-rms ...`.
 
-- l’image n’est pas proposée au téléchargement dans l’application.
+## Environnement
 
-En mode batch :
+Le projet est prevu pour etre deplace sur un autre poste Windows a condition
+que Miniconda ou Anaconda soit installe.
 
-- le seuil vient de `GEOREF_MAX_RMS` ;
-- sauf surcharge via :
-
-```powershell
-python main_georef.py --max-rms ...
-```
-
----
-
-# Installation de l’environnement
-
-Le projet est prévu pour être déplacé sur un autre poste Windows disposant de :
-
-- Miniconda ;
-- ou Anaconda.
-
-## Installation automatique
+Installation de l'environnement :
 
 ```powershell
 install_env.bat
@@ -307,14 +206,13 @@ install_env.bat
 
 Ce script :
 
-- cherche `conda` dans le PATH ;
-- détecte automatiquement Miniconda/Anaconda ;
-- crée l’environnement `ortho_histo` si nécessaire ;
-- met à jour l’environnement s’il existe déjà.
+- cherche `conda` dans le PATH et dans les emplacements Miniconda/Anaconda
+  courants ;
+- cree l'environnement `ortho_histo` depuis `environment.yml` s'il n'existe
+  pas ;
+- met l'environnement a jour s'il existe deja.
 
----
-
-# Lancement de l’application
+Lancement de l'application :
 
 ```powershell
 lancer_application.bat
@@ -322,23 +220,15 @@ lancer_application.bat
 
 Ce script :
 
-- détecte `conda` ;
-- active l’environnement `ortho_histo` ;
-- lance Streamlit.
+- cherche `conda` ;
+- active l'environnement `ortho_histo` ;
+- lance Streamlit sur `_application/app_streamlit.py`.
 
----
+Creation manuelle equivalente :
 
-# Installation manuelle équivalente
-
-```powershell
+```text
 conda env create -f environment.yml
-
 conda activate ortho_histo
 ```
 
----
-
-# Notes importantes
-
-- GDAL provient de Conda/Miniconda ;
-- ne pas installer GDAL via `pip`.
+GDAL vient de conda/miniconda. Ne pas installer GDAL via `pip`.
