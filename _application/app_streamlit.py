@@ -5,6 +5,7 @@ from io import StringIO
 import sys
 from pathlib import Path
 
+import pandas as pd
 import folium
 import streamlit as st
 from folium.plugins import Draw
@@ -550,28 +551,36 @@ for row in mission_rows:
     if key not in st.session_state:
         st.session_state[key] = True
 
-header_cols = st.columns([3, 2, 2, 1])
-header_cols[0].markdown("**Dataset id**")
-header_cols[1].markdown("**Annee de la mission**")
-header_cols[2].markdown("**Nombre de photo**")
-header_cols[3].markdown("**Telecharger**")
-
+mission_editor_rows = []
 for row in mission_rows:
-    row_cols = st.columns([3, 2, 2, 1])
-    row_cols[0].write(row["dataset_id"])
-    row_cols[1].write(row["annee_mission"])
-    row_cols[2].write(row["nombre_photo"])
-    with row_cols[3]:
-        st.checkbox(
+    mission_editor_rows.append({
+        **row,
+        "Telecharger": st.session_state[f"mission_download_{row['dataset_id']}"],
+    })
+
+mission_editor_df = pd.DataFrame(mission_editor_rows)
+
+edited_mission_df = st.data_editor(
+    mission_editor_df,
+    hide_index=True,
+    use_container_width=True,
+    disabled=["dataset_id", "annee_mission", "nombre_photo"],
+    column_config={
+        "Telecharger": st.column_config.CheckboxColumn(
             "Telecharger",
-            key=f"mission_download_{row['dataset_id']}",
-            label_visibility="collapsed",
-        )
+            default=True,
+        ),
+    },
+    key="missions_candidates_editor",
+)
+
+for row in edited_mission_df.to_dict("records"):
+    st.session_state[f"mission_download_{row['dataset_id']}"] = bool(row["Telecharger"])
 
 selected_missions = [
     row["dataset_id"]
-    for row in mission_rows
-    if st.session_state[f"mission_download_{row['dataset_id']}"]
+    for row in edited_mission_df.to_dict("records")
+    if row["Telecharger"]
 ]
 
 candidate_selected_features = [
