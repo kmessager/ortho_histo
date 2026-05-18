@@ -1,3 +1,4 @@
+100% develope par IA (CODEX), tout le code / toute la doc est 100% générée par IA
 app de téléchargement et géoréférencement auto helmert des pva IGN
 
 Pipeline Python pour recuperer, simuler et georeferencer des prises de vues
