@@ -1,0 +1,5 @@
+requests
+tqdm
+streamlit
+streamlit-folium
+folium

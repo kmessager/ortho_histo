@@ -1,0 +1,16 @@
+name: ortho_histo
+
+channels:
+  - conda-forge
+  - defaults
+
+dependencies:
+  - python=3.11
+  - gdal
+  - requests
+  - tqdm
+  - streamlit
+  - folium
+  - pip
+  - pip:
+      - streamlit-folium
