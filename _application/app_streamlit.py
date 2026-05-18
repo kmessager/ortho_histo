@@ -498,6 +498,11 @@ if filter_clicked:
 
     st.session_state.pop("candidate_features", None)
     st.session_state.pop("candidate_grouped_features", None)
+    st.session_state.pop("mission_editor_version", None)
+    st.session_state.pop("mission_editor_default", None)
+    for key in list(st.session_state.keys()):
+        if key.startswith("missions_candidates_editor_"):
+            st.session_state.pop(key, None)
     clear_mission_selection_state()
     clear_downstream_state()
 
@@ -537,28 +542,26 @@ if not mission_rows:
 
 st.subheader("Missions candidates")
 
+if "mission_editor_version" not in st.session_state:
+    st.session_state["mission_editor_version"] = 0
+
+if "mission_editor_default" not in st.session_state:
+    st.session_state["mission_editor_default"] = True
+
 left_select, right_select = st.columns(2)
+
 if left_select.button("Tout selectionner"):
-    for row in mission_rows:
-        st.session_state[f"mission_download_{row['dataset_id']}"] = True
+    st.session_state["mission_editor_default"] = True
+    st.session_state["mission_editor_version"] += 1
+    st.rerun()
 
 if right_select.button("Tout deselectionner"):
-    for row in mission_rows:
-        st.session_state[f"mission_download_{row['dataset_id']}"] = False
+    st.session_state["mission_editor_default"] = False
+    st.session_state["mission_editor_version"] += 1
+    st.rerun()
 
-for row in mission_rows:
-    key = f"mission_download_{row['dataset_id']}"
-    if key not in st.session_state:
-        st.session_state[key] = True
-
-mission_editor_rows = []
-for row in mission_rows:
-    mission_editor_rows.append({
-        **row,
-        "Telecharger": st.session_state[f"mission_download_{row['dataset_id']}"],
-    })
-
-mission_editor_df = pd.DataFrame(mission_editor_rows)
+mission_editor_df = pd.DataFrame(mission_rows)
+mission_editor_df["Telecharger"] = st.session_state["mission_editor_default"]
 
 edited_mission_df = st.data_editor(
     mission_editor_df,
@@ -571,11 +574,8 @@ edited_mission_df = st.data_editor(
             default=True,
         ),
     },
-    key="missions_candidates_editor",
+    key=f"missions_candidates_editor_{st.session_state['mission_editor_version']}",
 )
-
-for row in edited_mission_df.to_dict("records"):
-    st.session_state[f"mission_download_{row['dataset_id']}"] = bool(row["Telecharger"])
 
 selected_missions = [
     row["dataset_id"]
